@@ -26,17 +26,19 @@ export enum AzureQueryType {
   AzureResourceGraph = 'Azure Resource Graph',
 }
 
+// Actually, everything on here is optional because the object is empty when a new panel
+// is created
 export interface AzureMonitorQuery extends DataQuery {
-  queryType: AzureQueryType;
-  format: string;
-  subscription: string;
-  subscriptions: string[];
+  queryType?: AzureQueryType;
+  format?: string;
+  subscription?: string;
+  subscriptions?: string[];
 
-  azureMonitor: AzureMetricQuery;
-  azureLogAnalytics: AzureLogsQuery;
+  azureMonitor?: AzureMetricQuery;
+  azureLogAnalytics?: AzureLogsQuery;
   appInsights?: ApplicationInsightsQuery;
-  insightsAnalytics: InsightsAnalyticsQuery;
-  azureResourceGraph: AzureResourceGraphQuery;
+  insightsAnalytics?: InsightsAnalyticsQuery;
+  azureResourceGraph?: AzureResourceGraphQuery;
 }
 
 /**
@@ -109,18 +111,18 @@ export interface AzureMetricDimension {
 }
 
 export interface AzureMetricQuery {
-  resourceGroup: string | undefined;
-  resourceName: string | undefined;
-  metricDefinition: string | undefined;
-  metricNamespace: string | undefined;
-  metricName: string | undefined;
+  resourceGroup?: string | undefined;
+  resourceName?: string | undefined;
+  metricDefinition?: string | undefined;
+  metricNamespace?: string | undefined;
+  metricName?: string | undefined;
   timeGrainUnit?: string;
-  timeGrain: string;
-  allowedTimeGrainsMs: number[];
-  aggregation: string | undefined;
-  dimensionFilters: AzureMetricDimension[];
-  alias: string;
-  top: string;
+  timeGrain?: string;
+  allowedTimeGrainsMs?: number[];
+  aggregation?: string | undefined;
+  dimensionFilters?: AzureMetricDimension[];
+  alias?: string;
+  top?: string;
 }
 
 export interface AzureLogsQuery {
