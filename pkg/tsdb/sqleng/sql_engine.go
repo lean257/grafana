@@ -17,7 +17,6 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/data/sqlutil"
-	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/setting"
@@ -133,6 +132,7 @@ func NewQueryDataHandler(config DataPluginConfiguration, queryResultTransformer 
 		maxIdleConns    int `json:"maxIdleConns"`
 		connMaxLifetime int `json:"connMaxLifetime"`
 	}
+
 	jsonData := JsonData{maxOpenConns: 0, maxIdleConns: 2, connMaxLifetime: 14400}
 	err = json.Unmarshal(config.Datasource.JSONData, &jsonData)
 	if err != nil {
@@ -154,16 +154,17 @@ const rowLimit = 1000000
 
 func (e *DataSourceInfo) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	result := backend.NewQueryDataResponse()
-	ch := make(chan backend.DataResponse, len(queryContext.Queries))
+
+	ch := make(chan backend.DataResponse, len(req.Queries))
 	var wg sync.WaitGroup
 	// Execute each query in a goroutine and wait for them to finish afterwards
-	for _, query := range queryContext.Queries {
+	for _, query := range req.Queries {
 		if query.Model.Get("rawSql").MustString() == "" {
 			continue
 		}
 
 		wg.Add(1)
-		go e.executeQuery(query, &wg, queryContext, ch)
+		go e.executeQuery(query, &wg, ctx, ch)
 	}
 
 	wg.Wait()
@@ -179,13 +180,12 @@ func (e *DataSourceInfo) QueryData(ctx context.Context, req *backend.QueryDataRe
 }
 
 //nolint: staticcheck // plugins.DataQueryResult deprecated
-func (e *dataPlugin) executeQuery(query plugins.DataSubQuery, wg *sync.WaitGroup, queryContext plugins.DataQuery,
-	ch chan plugins.DataQueryResult) {
+func (e *DataSourceInfo) executeQuery(query backend.DataQuery, wg *sync.WaitGroup, queryContext context.Context,
+	ch chan backend.DataResponse) {
 	defer wg.Done()
-
-	queryResult := plugins.DataQueryResult{
-		Meta:  simplejson.New(),
-		RefID: query.RefID,
+	query.RefID
+	queryResult := backend.DataResponse{
+		// RefID: query.RefID,
 	}
 
 	defer func() {
@@ -206,10 +206,8 @@ func (e *dataPlugin) executeQuery(query plugins.DataSubQuery, wg *sync.WaitGroup
 	if rawSQL == "" {
 		panic("Query model property rawSql should not be empty at this point")
 	}
-	var timeRange plugins.DataTimeRange
-	if queryContext.TimeRange != nil {
-		timeRange = *queryContext.TimeRange
-	}
+
+	timeRange := query.TimeRange
 
 	errAppendDebug := func(frameErr string, err error, query string) {
 		var emptyFrame data.Frame
@@ -217,7 +215,7 @@ func (e *dataPlugin) executeQuery(query plugins.DataSubQuery, wg *sync.WaitGroup
 			ExecutedQueryString: query,
 		})
 		queryResult.Error = fmt.Errorf("%s: %w", frameErr, err)
-		queryResult.Dataframes = plugins.NewDecodedDataFrames(data.Frames{&emptyFrame})
+		queryResult.Frames = data.Frames{&emptyFrame}
 		ch <- queryResult
 	}
 
@@ -270,7 +268,7 @@ func (e *dataPlugin) executeQuery(query plugins.DataSubQuery, wg *sync.WaitGroup
 
 	// If no rows were returned, no point checking anything else.
 	if frame.Rows() == 0 {
-		queryResult.Dataframes = plugins.NewDecodedDataFrames(data.Frames{frame})
+		queryResult.Frames = data.Frames{frame}
 		ch <- queryResult
 		return
 	}
@@ -339,12 +337,12 @@ func (e *dataPlugin) executeQuery(query plugins.DataSubQuery, wg *sync.WaitGroup
 		}
 	}
 
-	queryResult.Dataframes = plugins.NewDecodedDataFrames(data.Frames{frame})
+	queryResult.Frames = data.Frames{frame}
 	ch <- queryResult
 }
 
 // Interpolate provides global macros/substitutions for all sql datasources.
-var Interpolate = func(query plugins.DataSubQuery, timeRange plugins.DataTimeRange, sql string) (string, error) {
+var Interpolate = func(query backend.DataQuery, timeRange backend.TimeRange, sql string) (string, error) {
 	minInterval, err := interval.GetIntervalFrom(query.DataSource, query.Model, time.Second*60)
 	if err != nil {
 		return "", err
@@ -353,14 +351,14 @@ var Interpolate = func(query plugins.DataSubQuery, timeRange plugins.DataTimeRan
 
 	sql = strings.ReplaceAll(sql, "$__interval_ms", strconv.FormatInt(interval.Milliseconds(), 10))
 	sql = strings.ReplaceAll(sql, "$__interval", interval.Text)
-	sql = strings.ReplaceAll(sql, "$__unixEpochFrom()", fmt.Sprintf("%d", timeRange.GetFromAsSecondsEpoch()))
-	sql = strings.ReplaceAll(sql, "$__unixEpochTo()", fmt.Sprintf("%d", timeRange.GetToAsSecondsEpoch()))
+	sql = strings.ReplaceAll(sql, "$__unixEpochFrom()", fmt.Sprintf("%d", timeRange.From.UTC().Unix()))
+	sql = strings.ReplaceAll(sql, "$__unixEpochTo()", fmt.Sprintf("%d", timeRange.To.UTC().Unix()))
 
 	return sql, nil
 }
 
 //nolint: staticcheck // plugins.DataPlugin deprecated
-func (e *dataPlugin) newProcessCfg(query plugins.DataSubQuery, queryContext plugins.DataQuery,
+func (e *DataSourceInfo) newProcessCfg(query plugins.DataSubQuery, queryContext plugins.DataQuery,
 	rows *core.Rows, interpolatedQuery string) (*dataQueryModel, error) {
 	columnNames, err := rows.Columns()
 	if err != nil {
@@ -900,23 +898,36 @@ func convertSQLValueColumnToFloat(frame *data.Frame, Index int) (*data.Frame, er
 	return frame, nil
 }
 
-func SetupFillmode(query plugins.DataSubQuery, interval time.Duration, fillmode string) error {
-	query.Model.Set("fill", true)
-	query.Model.Set("fillInterval", interval.Seconds())
+func SetupFillmode(query *backend.DataQuery, interval time.Duration, fillmode string) error {
+	rawQueryProp := make(map[string]interface{})
+	queryBytes, err := query.JSON.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(queryBytes, &rawQueryProp)
+	if err != nil {
+		return err
+	}
+	rawQueryProp["fill"] = true
+	rawQueryProp["fillInterval"] = interval.Seconds()
+
 	switch fillmode {
 	case "NULL":
-		query.Model.Set("fillMode", "null")
+		rawQueryProp["fillMode"] = "null"
 	case "previous":
-		query.Model.Set("fillMode", "previous")
+		rawQueryProp["fillMode"] = "previous"
 	default:
-		query.Model.Set("fillMode", "value")
+		rawQueryProp["fillMode"] = "value"
 		floatVal, err := strconv.ParseFloat(fillmode, 64)
 		if err != nil {
 			return fmt.Errorf("error parsing fill value %v", fillmode)
 		}
-		query.Model.Set("fillValue", floatVal)
+		rawQueryProp["fillValue"] = floatVal
 	}
-
+	query.JSON, err = json.Marshal(rawQueryProp)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -941,4 +952,19 @@ func (m *SQLMacroEngineBase) ReplaceAllStringSubmatchFunc(re *regexp.Regexp, str
 	}
 
 	return result + str[lastIndex:]
+}
+
+// epochPrecisionToMS converts epoch precision to millisecond, if needed.
+// Only seconds to milliseconds supported right now
+func epochPrecisionToMS(value float64) float64 {
+	s := strconv.FormatFloat(value, 'e', -1, 64)
+	if strings.HasSuffix(s, "e+09") {
+		return value * float64(1e3)
+	}
+
+	if strings.HasSuffix(s, "e+18") {
+		return value / float64(time.Millisecond)
+	}
+
+	return value
 }
