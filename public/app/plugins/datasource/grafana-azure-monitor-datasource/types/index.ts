@@ -126,8 +126,8 @@ export interface AzureMetricQuery {
 }
 
 export interface AzureLogsQuery {
-  query: string;
-  resultFormat: string;
+  query?: string;
+  resultFormat?: string;
   resource?: string;
 
   /** @deprecated Queries should be migrated to use Resource instead */
@@ -135,26 +135,26 @@ export interface AzureLogsQuery {
 }
 
 export interface AzureResourceGraphQuery {
-  query: string;
-  resultFormat: string;
+  query?: string;
+  resultFormat?: string;
 }
 
 export interface ApplicationInsightsQuery {
-  metricName: string;
-  timeGrain: string;
-  timeGrainCount: string;
-  timeGrainType: string;
-  timeGrainUnit: string;
-  aggregation: string;
-  dimension: string[]; // Was string before 7.1
+  metricName?: string;
+  timeGrain?: string;
+  timeGrainCount?: string;
+  timeGrainType?: string;
+  timeGrainUnit?: string;
+  aggregation?: string;
+  dimension?: string[]; // Was string before 7.1
   // dimensions: string[]; why is this metadata stored on the object!
-  dimensionFilter: string;
-  alias: string;
+  dimensionFilter?: string;
+  alias?: string;
 }
 
 export interface InsightsAnalyticsQuery {
-  query: string;
-  resultFormat: string;
+  query?: string;
+  resultFormat?: string;
 }
 
 // Represents an errors that come back from frontend requests.

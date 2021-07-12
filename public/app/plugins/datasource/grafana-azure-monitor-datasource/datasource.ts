@@ -64,14 +64,6 @@ export default class Datasource extends DataSourceApi<AzureMonitorQuery, AzureDa
       pseudoDatasource[AzureQueryType.InsightsAnalytics] = this.insightsAnalyticsDatasource;
     }
     this.pseudoDatasource = pseudoDatasource;
-
-    const optionsKey: any = {};
-    optionsKey[AzureQueryType.ApplicationInsights] = 'appInsights';
-    optionsKey[AzureQueryType.AzureMonitor] = 'azureMonitor';
-    optionsKey[AzureQueryType.InsightsAnalytics] = 'insightsAnalytics';
-    optionsKey[AzureQueryType.LogAnalytics] = 'azureLogAnalytics';
-    optionsKey[AzureQueryType.AzureResourceGraph] = 'azureResourceGraph';
-    this.optionsKey = optionsKey;
   }
 
   query(options: DataQueryRequest<AzureMonitorQuery>): Observable<DataQueryResponse> {
@@ -81,11 +73,8 @@ export default class Datasource extends DataSourceApi<AzureMonitorQuery, AzureDa
       // Migrate old query structure
       migrateQuery(target);
 
-      // Check that we have options
-      const opts = (target as any)[this.optionsKey[target.queryType]];
-
-      // Skip hidden queries or ones without properties
-      if (target.hide || !opts) {
+      // Skip hidden or invalid queries or ones without properties
+      if (!target.queryType || target.hide || !hasQueryForType(target)) {
         continue;
       }
 
@@ -270,9 +259,9 @@ export default class Datasource extends DataSourceApi<AzureMonitorQuery, AzureDa
   }
 
   interpolateVariablesInQueries(queries: AzureMonitorQuery[], scopedVars: ScopedVars): AzureMonitorQuery[] {
-    return queries.map(
-      (query) => this.pseudoDatasource[query.queryType].applyTemplateVariables(query, scopedVars) as AzureMonitorQuery
-    );
+    return queries.map((query) => {
+      return query.queryType ? this.pseudoDatasource[query.queryType].applyTemplateVariables(query, scopedVars) : query;
+    });
   }
 
   replaceTemplateVariable(variable: string) {
@@ -298,5 +287,27 @@ function migrateQuery(target: AzureMonitorQuery) {
 
   if (target.queryType === AzureQueryType.AzureMonitor) {
     migrateMetricsDimensionFilters(target.azureMonitor);
+  }
+}
+
+function hasQueryForType(query: AzureMonitorQuery): boolean {
+  switch (query.queryType) {
+    case AzureQueryType.AzureMonitor:
+      return !!query.azureMonitor;
+
+    case AzureQueryType.LogAnalytics:
+      return !!query.azureLogAnalytics;
+
+    case AzureQueryType.AzureResourceGraph:
+      return !!query.azureResourceGraph;
+
+    case AzureQueryType.ApplicationInsights:
+      return !!query.appInsights;
+
+    case AzureQueryType.InsightsAnalytics:
+      return !!query.insightsAnalytics;
+
+    default:
+      return false;
   }
 }
