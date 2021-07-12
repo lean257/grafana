@@ -20,7 +20,7 @@ import {
   ScopedVars,
 } from '@grafana/data';
 import { forkJoin, Observable, of } from 'rxjs';
-import { DataSourceWithBackend, getTemplateSrv, TemplateSrv } from '@grafana/runtime';
+import { getTemplateSrv, TemplateSrv } from '@grafana/runtime';
 import InsightsAnalyticsDatasource from './insights_analytics/insights_analytics_datasource';
 import { migrateMetricsDimensionFilters } from './query_ctrl';
 import { map } from 'rxjs/operators';
@@ -37,7 +37,15 @@ export default class Datasource extends DataSourceApi<AzureMonitorQuery, AzureDa
   /** @deprecated */
   insightsAnalyticsDatasource?: InsightsAnalyticsDatasource;
 
-  pseudoDatasource: Record<AzureQueryType, DataSourceWithBackend>;
+  pseudoDatasource: {
+    [key in AzureQueryType]?:
+      | AzureMonitorDatasource
+      | AzureLogAnalyticsDatasource
+      | AzureResourceGraphDatasource
+      | AppInsightsDatasource
+      | InsightsAnalyticsDatasource;
+  } = {};
+
   optionsKey: Record<AzureQueryType, string>;
 
   constructor(
@@ -50,20 +58,20 @@ export default class Datasource extends DataSourceApi<AzureMonitorQuery, AzureDa
     this.azureResourceGraphDatasource = new AzureResourceGraphDatasource(instanceSettings);
     this.resourcePickerData = new ResourcePickerData(instanceSettings);
 
-    const pseudoDatasource: any = {};
-    pseudoDatasource[AzureQueryType.AzureMonitor] = this.azureMonitorDatasource;
-    pseudoDatasource[AzureQueryType.LogAnalytics] = this.azureLogAnalyticsDatasource;
-    pseudoDatasource[AzureQueryType.AzureResourceGraph] = this.azureResourceGraphDatasource;
+    this.pseudoDatasource = {
+      [AzureQueryType.AzureMonitor]: this.azureMonitorDatasource,
+      [AzureQueryType.LogAnalytics]: this.azureLogAnalyticsDatasource,
+      [AzureQueryType.AzureResourceGraph]: this.azureResourceGraphDatasource,
+    };
 
     const cloud = getAzureCloud(instanceSettings);
     if (cloud === 'azuremonitor' || cloud === 'chinaazuremonitor') {
       // AppInsights and InsightAnalytics are only supported for Public and Azure China clouds
       this.appInsightsDatasource = new AppInsightsDatasource(instanceSettings);
       this.insightsAnalyticsDatasource = new InsightsAnalyticsDatasource(instanceSettings);
-      pseudoDatasource[AzureQueryType.ApplicationInsights] = this.appInsightsDatasource;
-      pseudoDatasource[AzureQueryType.InsightsAnalytics] = this.insightsAnalyticsDatasource;
+      this.pseudoDatasource[AzureQueryType.ApplicationInsights] = this.appInsightsDatasource;
+      this.pseudoDatasource[AzureQueryType.InsightsAnalytics] = this.insightsAnalyticsDatasource;
     }
-    this.pseudoDatasource = pseudoDatasource;
   }
 
   query(options: DataQueryRequest<AzureMonitorQuery>): Observable<DataQueryResponse> {
@@ -259,9 +267,16 @@ export default class Datasource extends DataSourceApi<AzureMonitorQuery, AzureDa
   }
 
   interpolateVariablesInQueries(queries: AzureMonitorQuery[], scopedVars: ScopedVars): AzureMonitorQuery[] {
-    return queries.map((query) => {
-      return query.queryType ? this.pseudoDatasource[query.queryType].applyTemplateVariables(query, scopedVars) : query;
+    const mapped = queries.map((query) => {
+      if (query.queryType) {
+        const ds = this.pseudoDatasource[query.queryType];
+        return ds.applyTemplateVariables(query, scopedVars);
+      } else {
+        return query;
+      }
     });
+
+    return mapped;
   }
 
   replaceTemplateVariable(variable: string) {
@@ -285,7 +300,7 @@ function migrateQuery(target: AzureMonitorQuery) {
     target.queryType = AzureQueryType.AzureMonitor;
   }
 
-  if (target.queryType === AzureQueryType.AzureMonitor) {
+  if (target.queryType === AzureQueryType.AzureMonitor && target.azureMonitor) {
     migrateMetricsDimensionFilters(target.azureMonitor);
   }
 }

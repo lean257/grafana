@@ -547,7 +547,9 @@ export function migrateMetricsDimensionFilters(item: AzureMetricQuery) {
   if (!item.dimensionFilters) {
     item.dimensionFilters = [];
   }
+
   const oldDimension = (item as any).dimension;
+
   if (oldDimension && oldDimension !== 'None') {
     item.dimensionFilters.push({
       dimension: oldDimension,

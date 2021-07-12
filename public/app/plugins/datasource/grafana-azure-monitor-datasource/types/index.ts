@@ -30,7 +30,7 @@ export enum AzureQueryType {
 // is created
 export interface AzureMonitorQuery extends DataQuery {
   queryType?: AzureQueryType;
-  format?: string;
+  // format?: string; // this is not used by the backend at all, and isnt set anywhere??
   subscription?: string;
   subscriptions?: string[];
 
@@ -116,13 +116,15 @@ export interface AzureMetricQuery {
   metricDefinition?: string | undefined;
   metricNamespace?: string | undefined;
   metricName?: string | undefined;
-  timeGrainUnit?: string;
   timeGrain?: string;
   allowedTimeGrainsMs?: number[];
   aggregation?: string | undefined;
   dimensionFilters?: AzureMetricDimension[];
   alias?: string;
   top?: string;
+
+  /** @deprecated */
+  timeGrainUnit?: string;
 }
 
 export interface AzureLogsQuery {
@@ -155,6 +157,9 @@ export interface ApplicationInsightsQuery {
 export interface InsightsAnalyticsQuery {
   query?: string;
   resultFormat?: string;
+
+  /** @deprecated Migrate field to query  */
+  rawQueryString?: string;
 }
 
 // Represents an errors that come back from frontend requests.
