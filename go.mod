@@ -49,7 +49,7 @@ require (
 	github.com/google/go-cmp v0.5.5
 	github.com/google/uuid v1.2.0
 	github.com/gorilla/websocket v1.4.2
-	github.com/gosimple/slug v1.9.0
+	github.com/gosimple/slug v1.13.1
 	github.com/grafana/grafana-aws-sdk v0.7.0
 	github.com/grafana/grafana-plugin-sdk-go v0.106.0
 	github.com/grafana/loki v1.6.2-0.20210520072447-15d417efe103
